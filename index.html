@@ -629,6 +629,13 @@
                 const cx = this.x + this.width / 2;
                 const cy = this.y + this.height / 2;
                 
+                // Animación de las piernas (abrir y cerrar)
+                const legAnimTime = time * 0.015;
+                const legAnimPhase = Math.sin(legAnimTime);
+                const legSpread = Math.abs(Math.sin(legAnimTime)) * 8; // 0 a 8 px
+                const legBottom = this.y + this.height;
+                const legTop = legBottom - 8;
+                
                 ctx.beginPath();
                 
                 // Forma ligeramente diferente para el ataque
@@ -679,6 +686,28 @@
                 
                 ctx.fill();
                 
+                // Dibujar las dos patas que abren y cierran
+                ctx.save();
+                ctx.shadowBlur = 0;
+                ctx.strokeStyle = colors[this.type];
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                
+                const leftLegTopX = cx - 5 - (legAnimPhase >= 0 ? legSpread : -legSpread);
+                const rightLegTopX = cx + 5 + (legAnimPhase >= 0 ? legSpread : -legSpread);
+                
+                ctx.beginPath();
+                ctx.moveTo(cx - 5, legBottom);
+                ctx.lineTo(leftLegTopX, legTop);
+                ctx.stroke();
+                
+                ctx.beginPath();
+                ctx.moveTo(cx + 5, legBottom);
+                ctx.lineTo(rightLegTopX, legTop);
+                ctx.stroke();
+                
+                ctx.restore();
+                
                 // Ojos brillantes
                 ctx.fillStyle = '#0a0a1a';
                 const eyeSize = 3;
@@ -688,19 +717,6 @@
                 ctx.beginPath();
                 ctx.arc(cx + 5, cy, eyeSize, 0, Math.PI * 2);
                 ctx.fill();
-                
-                // Efecto de velocidad (líneas de estela)
-                ctx.strokeStyle = colors[this.type];
-                ctx.lineWidth = 2;
-                ctx.globalAlpha = 0.6;
-                
-                const tailLength = this.attackPhase === 0 ? 20 : 15;
-                ctx.beginPath();
-                ctx.moveTo(cx - 3, this.y + this.height);
-                ctx.lineTo(cx - 3, this.y + this.height + tailLength);
-                ctx.moveTo(cx + 3, this.y + this.height);
-                ctx.lineTo(cx + 3, this.y + this.height + tailLength);
-                ctx.stroke();
                 
                 ctx.restore();
             }
@@ -1619,6 +1635,27 @@
                             this.divingEnemies.splice(i, 1);
                             this.player.loseLife();
                             this.soundManager.playerHit();
+                            this.createExplosion(
+                                dive.x + dive.width / 2,
+                                dive.y + dive.height / 2,
+                                '#ff0044',
+                                20
+                            );
+                            break;
+                        }
+                    }
+                }
+                
+                // Enemigos en picado vs escudos - destruir escudo y enemigo con sonido
+                for (let i = this.divingEnemies.length - 1; i >= 0; i--) {
+                    const dive = this.divingEnemies[i];
+                    if (!dive.alive) continue;
+                    for (let j = this.shields.length - 1; j >= 0; j--) {
+                        if (this.shields[j].alive && this.checkShieldCollision(dive, this.shields[j])) {
+                            this.shields[j].alive = false;
+                            dive.alive = false;
+                            this.divingEnemies.splice(i, 1);
+                            this.soundManager.shieldBreak();
                             this.createExplosion(
                                 dive.x + dive.width / 2,
                                 dive.y + dive.height / 2,
