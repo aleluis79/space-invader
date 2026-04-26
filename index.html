@@ -606,6 +606,12 @@
                 const freq = 400 + (midiNote % 4) * 30;
                 this.playTone(freq, 0.04, 'square', 0.06);
             }
+
+            shieldBreak() {
+                // Sonido de escudo destruido - chasquido/ruido
+                this.playTone(150, 0.1, 'sawtooth', 0.08);
+                this.playTone(80, 0.15, 'square', 0.06);
+            }
         }
 
         // ============================================
@@ -1002,6 +1008,20 @@
                         }
                     }
 
+                    // Acelerar enemigos cuando están cerca del escudo (escudo en y=580 aprox)
+                    const lowestEnemy = Math.max(...aliveEnemies.map(e => e.y));
+                    const shieldY = 580;
+                    let speedMultiplier = 1;
+                    
+                    if (lowestEnemy >= shieldY - 150) {
+                        // Muy cerca del escudo - acelerar significativamente
+                        speedMultiplier = 1.5;
+                    }
+                    if (lowestEnemy >= shieldY - 50) {
+                        // En el escudo - acelerar mucho más
+                        speedMultiplier = 2.5;
+                    }
+
                     // Si llegan al fondo o tocan un borde
                     if (reachedBottom ||
                         (this.enemyDirection === 1 && maxX >= CONFIG.canvasWidth - 20) ||
@@ -1015,8 +1035,8 @@
                         this.soundManager.step(this.enemyStepCount);
                         this.enemyStepCount++;
                     } else {
-                        // Mover horizontalmente
-                        const moveAmount = this.enemySpeed * dt;
+                        // Mover horizontalmente con aceleración
+                        const moveAmount = this.enemySpeed * dt * speedMultiplier;
                         for (const enemy of aliveEnemies) {
                             enemy.x += this.enemyDirection * moveAmount;
                         }
@@ -1171,12 +1191,21 @@
                     }
                 }
 
-                // Enemigos vs escudos
+                // Enemigos vs escudos - destruir escudo y enemigo con sonido
                 for (const enemy of this.enemies) {
                     if (!enemy.alive) continue;
                     for (let i = this.shields.length - 1; i >= 0; i--) {
                         if (this.shields[i].alive && this.checkShieldCollision(enemy, this.shields[i])) {
                             this.shields[i].alive = false;
+                            enemy.alive = false;
+                            this.soundManager.shieldBreak();
+                            this.createExplosion(
+                                enemy.x + enemy.width / 2,
+                                enemy.y + enemy.height / 2,
+                                '#00ff41',
+                                15
+                            );
+                            break;
                         }
                     }
                 }
