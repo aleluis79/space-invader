@@ -532,7 +532,7 @@
          * Enemigo que ataca en picado (estilo Galaga)
          */
         class DivingEnemy {
-            constructor(enemy, targetX) {
+            constructor(enemy) {
                 // Copia las propiedades del enemigo original
                 this.x = enemy.x;
                 this.y = enemy.y;
@@ -542,69 +542,67 @@
                 this.alive = true;
                 
                 // Estado del ataque
-                this.state = 'diving'; // 'diving' o 'returning'
                 this.startX = enemy.x;
                 this.startY = enemy.y;
-                this.targetX = targetX;
                 this.returnTargetY = enemy.y;
                 
                 // Parámetros del ataque
                 this.attackTimer = 0;
-                this.attackDuration = 960; // frames a 60fps (~8 segundos por fase)
-                this.returnTimer = 0;
-                this.attackPhase = 0; // 0 = yendo abajo, 1 = regresando
-                
-                // Velocidad del ataque
-                this.diveSpeed = 3;
-                
-                // Track si debe disparar (en frames a 60fps: 60 frames = 1 segundo)
-                this.shootTimer = Math.random() * 90;
-                this.shootInterval = 90; // 1.5 segundos entre disparos
+                this.attackDuration = 720; // frames a 60fps (~12 segundos total: 6s bajando, 6s subiendo)
+                this.attackPhase = 0; // 0 = bajando, 1 = subiendo
+                this.shootTimer = 0;
+                this.shootInterval = 60; // 1 segundo entre disparos
             }
             
             update(dt) {
                 if (!this.alive) return;
                 
                 this.attackTimer += dt;
+                const totalTime = this.attackDuration;
                 
-                // Fase 1: Ir hacia abajo (diving)
+                // Fase 0: Bajar con S-curve y disparar
                 if (this.attackPhase === 0) {
-                    const progress = Math.min(this.attackTimer / (this.attackDuration * 0.5), 1);
+                    const diveTime = totalTime * 0.5; // 50% del tiempo bajando
+                    const progress = Math.min(this.attackTimer / diveTime, 1);
                     
                     // Movimiento en S hacia abajo
                     const sway = Math.sin(progress * Math.PI * 4) * 30 * progress;
-                    const targetX = this.startX + sway;
-                    
-                    this.x = targetX;
+                    this.x = this.startX + sway;
                     this.y = this.startY + (CONFIG.canvasHeight - 100) * progress;
                     
+                    // Dispara mientras baja
+                    this.shootTimer -= dt;
+                    if (this.shootTimer <= 0) {
+                        this.shootTimer = this.shootInterval;
+                        this.shoot();
+                    }
+                    
+                    // Al llegar abajo, cambia a subida
                     if (progress >= 1) {
                         this.attackPhase = 1;
-                        this.returnTimer = 0;
                     }
                 }
                 
-                // Fase 2: Regresar a la formación
+                // Fase 1: Subir con zigzag hacia la formación
                 else if (this.attackPhase === 1) {
-                    this.returnTimer += dt;
-                    const progress = Math.min(this.returnTimer / (this.attackDuration * 0.5), 1);
+                    const returnTime = totalTime * 0.5; // 50% del tiempo subiendo
+                    const progress = Math.min(this.attackTimer / returnTime, 1);
                     
-                    // Regresa siguiendo una curva
-                    const sway = Math.sin(progress * Math.PI * 3) * 30 * progress;
-                    this.x = this.targetX + sway * (1 - progress);
-                    this.y = (CONFIG.canvasHeight - 100) * (1 - progress) + this.returnTargetY * progress;
+                    // Movimiento en zigzag hacia arriba
+                    const zigzag = Math.sin(progress * Math.PI * 6) * 25 * (1 - progress * 0.5);
+                    this.x = this.startX + zigzag;
+                    this.y = (CONFIG.canvasHeight - 100) * (1 - progress) + 80 * progress;
                     
-                    // Disparar durante el retorno
-                    if (progress > 0.3 && progress < 0.8) {
-                        this.shootTimer -= dt;
-                        if (this.shootTimer <= 0) {
-                            this.shootTimer = this.shootInterval;
-                            this.shoot();
-                        }
+                    // Dispara mientras sube
+                    this.shootTimer -= dt;
+                    if (this.shootTimer <= 0) {
+                        this.shootTimer = this.shootInterval;
+                        this.shoot();
                     }
                     
+                    // Si vuelve a la formación, termina
                     if (progress >= 1) {
-                        this.alive = false; // Deceñado, vuelve a la formación
+                        this.alive = false;
                     }
                 }
             }
@@ -1070,7 +1068,7 @@
                 attacker.alive = false;
                 
                 // Crear el enemigo en picado con referencias a las variables necesarias
-                const diveEnemy = new DivingEnemy(attacker, this.player.x);
+                const diveEnemy = new DivingEnemy(attacker);
                 diveEnemy.player = this.player;
                 diveEnemy.enemyBullets = [];
                 diveEnemy.soundManager = this.soundManager;
@@ -1324,8 +1322,8 @@
                         }
                     }
                     
-                    // Si el enemigo regresó a la formación, removerlo
-                    if (!dive.alive && dive.attackPhase === 1) {
+                    // Remover enemigos muertos (en cualquier fase)
+                    if (!dive.alive) {
                         this.divingEnemies.splice(i, 1);
                     }
                 }
@@ -1393,7 +1391,6 @@
                             const dive = this.divingEnemies[j];
                             if (this.checkBulletCollision(bullet, dive)) {
                                 dive.alive = false;
-                                dive.attackPhase = 1; // Terminar ataque inmediatamente
                                 this.divingEnemies.splice(j, 1);
                                 this.player.bullets.splice(i, 1);
                                 hit = true;
@@ -1613,7 +1610,6 @@
                             this.player.y + this.player.height > dive.y
                         ) {
                             dive.alive = false;
-                            dive.attackPhase = 1;
                             this.divingEnemies.splice(i, 1);
                             this.player.loseLife();
                             this.soundManager.playerHit();
@@ -1640,17 +1636,8 @@
                         this.finalLevel.textContent = this.level;
                     }
                 }
-                
-                // Tambien verificar enemigos en picado que lleguen al fondo
-                for (const dive of this.divingEnemies) {
-                    if (dive.alive && dive.y + dive.height >= CONFIG.playerStartY) {
-                        this.state = 'GAME_OVER';
-                        this.gameOverScreen.classList.remove('hidden');
-                        this.hud.classList.add('hidden');
-                        this.finalScore.textContent = this.score;
-                        this.finalLevel.textContent = this.level;
-                    }
-                }
+                // Los enemigos en picado no provocan game over al llegar al fondo
+                // Vuelven a subir y persiguen al jugador
             }
 
             checkVictory() {
