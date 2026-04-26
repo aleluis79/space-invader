@@ -131,7 +131,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background: 
+            background:
                 radial-gradient(1px 1px at 10% 20%, rgba(255,255,255,0.8), transparent),
                 radial-gradient(1px 1px at 20% 50%, rgba(255,255,255,0.6), transparent),
                 radial-gradient(1px 1px at 30% 10%, rgba(255,255,255,0.7), transparent),
@@ -163,7 +163,7 @@
 <body>
     <div id="gameWrapper">
         <canvas id="gameCanvas" width="600" height="800"></canvas>
-        
+
         <div id="uiOverlay">
             <div id="hud" class="hidden">
                 <div class="hud-item">
@@ -210,7 +210,7 @@
     <script>
         /**
          * Space Invaders - Juego completo
-         * 
+         *
          * Arquitectura basada en Game Loop con estados:
          * - MENU: Pantalla de inicio
          * - PLAYING: Juego activo
@@ -356,7 +356,7 @@
 
                 // Dibujar la nave del jugador
                 ctx.save();
-                
+
                 // Cuerpo principal
                 ctx.fillStyle = '#00ff41';
                 ctx.shadowColor = '#00ff41';
@@ -390,7 +390,7 @@
                 ctx.shadowColor = '#00ff41';
                 ctx.fillStyle = '#00ff41';
                 for (const bullet of this.bullets) {
-                    ctx.fillRect(bullet.x - CONFIG.bulletWidth / 2, bullet.y, 
+                    ctx.fillRect(bullet.x - CONFIG.bulletWidth / 2, bullet.y,
                                 CONFIG.bulletWidth, CONFIG.bulletHeight);
                 }
 
@@ -440,9 +440,9 @@
 
                 // Animación según tipo
                 const animFrame = Math.floor(time / 500) % 2;
-                
+
                 ctx.save();
-                
+
                 // Colores según tipo (fila)
                 const colors = [
                     '#ff3366', // Tipo 0 - Rojo rosado (surtante)
@@ -451,7 +451,7 @@
                     '#33ccff', // Tipo 3 - Azul claro
                     '#66ff99', // Tipo 4 - Verde claro
                 ];
-                
+
                 ctx.fillStyle = colors[this.type];
                 ctx.shadowColor = colors[this.type];
                 ctx.shadowBlur = 8;
@@ -461,7 +461,7 @@
                 const cy = this.y + this.height / 2;
 
                 ctx.beginPath();
-                
+
                 if (this.type === 0) {
                     // Surtiente - forma con pinchos
                     ctx.moveTo(cx, this.y + 3);
@@ -511,7 +511,7 @@
                     ctx.lineTo(this.x, this.y + this.height - 5);
                     ctx.closePath();
                 }
-                
+
                 ctx.fill();
 
                 // Ojos (detalles)
@@ -599,6 +599,13 @@
                 this.playTone(80, 0.5, 'sawtooth', 0.12);
                 this.playTone(50, 0.6, 'square', 0.1);
             }
+
+            step(midiNote) {
+                // Sonido de "paso" de los enemigos, como en el original
+                // El pitch sube con cada paso
+                const freq = 400 + (midiNote % 4) * 30;
+                this.playTone(freq, 0.04, 'square', 0.06);
+            }
         }
 
         // ============================================
@@ -639,7 +646,7 @@
                 // Inicializar sistemas
                 this.soundManager = new SoundManager();
                 this.particles = [];
-                
+
                 // Variables de juego
                 this.player = null;
                 this.enemies = [];
@@ -651,6 +658,14 @@
                 this.shields = [];
                 this.stars = [];
 
+                // Efecto de impacto en el jugador
+                this.hitFlash = 0;
+                this.hitFlashStart = 0;
+                this.hitShake = 0;
+                this.hitShakeStart = 0;
+                this.FLASH_DURATION = 350; // ms
+                this.SHAKE_DURATION = 300; // ms
+                
                 // Generar estrellas de fondo
                 this.generateStars();
 
@@ -773,7 +788,7 @@
             setupLevel() {
                 // Crear enemigos
                 this.enemies = [];
-                const startX = (CONFIG.canvasWidth - 
+                const startX = (CONFIG.canvasWidth -
                     (CONFIG.enemyCols * (CONFIG.enemyWidth + CONFIG.enemySpacing) - CONFIG.enemySpacing)) / 2;
                 const startY = 80;
 
@@ -792,6 +807,7 @@
                 // Aumentar dificultad con el nivel
                 this.enemySpeed = CONFIG.enemyMoveSpeed + (this.level - 1) * 0.3;
                 this.enemyMoveInterval = Math.max(8, 30 - (this.level - 1) * 4);
+                this.enemyStepCount = 0;
             }
 
             createShields() {
@@ -813,10 +829,10 @@
                         for (let col = 0; col < CONFIG.shieldBlocks; col++) {
                             const bx = sx + col * blockWidth;
                             const by = shieldY + row * blockHeight;
-                            
+
                             // Forma de arco - omitir centros de abajo
                             const isUnderArch = (row >= 2 && col >= 1 && col <= CONFIG.shieldBlocks - 2);
-                            
+
                             if (!isUnderArch) {
                                 this.shields.push(new ShieldBlock(bx, by, blockWidth, blockHeight));
                             }
@@ -828,7 +844,7 @@
             updateUI() {
                 this.scoreDisplay.textContent = this.score;
                 this.levelDisplay.textContent = this.level;
-                
+
                 // Dibujar vidas como pequeños iconos
                 const livesHTML = [];
                 for (let i = 0; i < this.player?.lives || 0; i++) {
@@ -847,7 +863,7 @@
                     top: a.y,
                     bottom: a.y + a.height,
                 };
-                
+
                 const bRect = {
                     left: b.x - CONFIG.bulletWidth / 2,
                     right: b.x + CONFIG.bulletWidth / 2,
@@ -891,7 +907,20 @@
         // ACTUALIZACIÓN DEL JUEGO
             // ============================================
             update(dt) {
-                if (this.state !== 'PLAYING') return;
+                // Actualizar timers de impacto siempre (incluso en GAME_OVER, PAUSED, etc.)
+                if (this.hitFlashStart > 0) {
+                    const elapsed = performance.now() - this.hitFlashStart;
+                    if (elapsed > this.FLASH_DURATION) this.hitFlashStart = 0;
+                }
+                if (this.hitShakeStart > 0) {
+                    const elapsed = performance.now() - this.hitShakeStart;
+                    if (elapsed > this.SHAKE_DURATION) this.hitShakeStart = 0;
+                }
+
+                if (this.state !== 'PLAYING') {
+                    this.updateUI();
+                    return;
+                }
 
                 // Actualizar jugador
                 this.player.update(dt, this.keys);
@@ -974,21 +1003,25 @@
                     }
 
                     // Si llegan al fondo o tocan un borde
-                    if (reachedBottom || 
+                    if (reachedBottom ||
                         (this.enemyDirection === 1 && maxX >= CONFIG.canvasWidth - 20) ||
                         (this.enemyDirection === -1 && minX <= 20)) {
-                        
+
                         // Cambiar dirección y bajar
                         this.enemyDirection *= -1;
                         for (const enemy of aliveEnemies) {
                             enemy.y += CONFIG.enemyDropAmount;
                         }
+                        this.soundManager.step(this.enemyStepCount);
+                        this.enemyStepCount++;
                     } else {
                         // Mover horizontalmente
                         const moveAmount = this.enemySpeed * dt;
                         for (const enemy of aliveEnemies) {
                             enemy.x += this.enemyDirection * moveAmount;
                         }
+                        this.soundManager.step(this.enemyStepCount);
+                        this.enemyStepCount++;
                     }
                 }
 
@@ -1101,12 +1134,25 @@
                         if (this.checkBulletCollision(bullet, playerRect)) {
                             this.enemyBullets.splice(i, 1);
                             this.player.loseLife();
+                            this.hitFlash = 1;
+                            this.hitFlashStart = performance.now();
+                            this.hitShake = 1;
+                            this.hitShakeStart = performance.now();
                             this.soundManager.playerHit();
+                            
+                            // Punto de impacto (donde está la bala)
+                            const impactX = bullet.x;
+                            const impactY = bullet.y;
+                            
+                            // Explosión potente de impacto con partículas multicromáticas
+                            this.createImpactExplosion(impactX, impactY);
+                            
+                            // Partículas verdes del jugador
                             this.createExplosion(
                                 this.player.x + this.player.width / 2,
                                 this.player.y + this.player.height / 2,
                                 '#00ff41',
-                                20
+                                20, 2, 8, 0.4, 0.7
                             );
                             break;
                         }
@@ -1178,15 +1224,23 @@
                 }
             }
 
-            createExplosion(x, y, color, count) {
+            createExplosion(x, y, color, count, speedMin = 3, speedMax = 6, lifeMin = 0.4, lifeMax = 0.8) {
                 for (let i = 0; i < count; i++) {
-                    const speed = 3 + Math.random() * 3;
+                    const speed = speedMin + Math.random() * (speedMax - speedMin);
                     const size = 2 + Math.random() * 3;
-                    const life = 0.5 + Math.random() * 0.5;
+                    const life = lifeMin + Math.random() * (lifeMax - lifeMin);
                     this.particles.push(
                         new Particle(x, y, color, speed, size, life)
                     );
                 }
+            }
+            
+            createImpactExplosion(x, y) {
+                // Explosión potente de impacto con chispas que salen en todas direcciones
+                this.createExplosion(x, y, '#ff3300', 30, 4, 10, 0.3, 0.7);
+                this.createExplosion(x, y, '#ffaa00', 20, 2, 8, 0.4, 0.8);
+                this.createExplosion(x, y, '#ffffff', 15, 3, 9, 0.2, 0.6);
+                this.createExplosion(x, y, '#ff6600', 12, 5, 12, 0.3, 0.5);
             }
 
             // ============================================
@@ -1198,8 +1252,18 @@
                 // Limpiar canvas
                 this.ctx.fillStyle = '#0a0a1a';
                 this.ctx.fillRect(0, 0, CONFIG.canvasWidth, CONFIG.canvasHeight);
-
-                // Dibujar estrellas
+                
+                // Screen shake al ser impactado
+                if (this.hitShakeStart > 0) {
+                    const elapsed = performance.now() - this.hitShakeStart;
+                    const remaining = this.SHAKE_DURATION - elapsed;
+                    const t = remaining / this.SHAKE_DURATION;
+                    const shakeAmount = t * 12;
+                    const shakeX = (Math.random() - 0.5) * shakeAmount;
+                    const shakeY = (Math.random() - 0.5) * shakeAmount;
+                    this.ctx.save();
+                    this.ctx.translate(shakeX, shakeY);
+                }
                 this.drawStars(time);
 
                 if (this.state === 'MENU') {
@@ -1289,6 +1353,48 @@
                 this.ctx.lineTo(CONFIG.canvasWidth, CONFIG.playerStartY + CONFIG.playerHeight);
                 this.ctx.stroke();
                 this.ctx.restore();
+                
+                // --- Flash de impacto (dibujado después de todo, encima de todo) ---
+                if (this.hitFlashStart > 0) {
+                    const elapsed = performance.now() - this.hitFlashStart;
+                    const remaining = Math.max(0, this.FLASH_DURATION - elapsed);
+                    const t = remaining / this.FLASH_DURATION;
+                    
+                    // Pulso: más fuerte al inicio, se desvanece
+                    const pulse = Math.sin(t * Math.PI) * 1.8 + 0.2;
+                    const alpha = t * pulse;
+                    
+                    // Gradiente radial desde la nave del jugador
+                    const gradient = this.ctx.createRadialGradient(
+                        CONFIG.canvasWidth / 2, CONFIG.playerStartY,
+                        0,
+                        CONFIG.canvasWidth / 2, CONFIG.playerStartY,
+                        CONFIG.canvasWidth * 0.65
+                    );
+                    gradient.addColorStop(0, `rgba(255, 0, 60, ${alpha})`);
+                    gradient.addColorStop(0.3, `rgba(255, 50, 0, ${alpha * 0.7})`);
+                    gradient.addColorStop(0.6, `rgba(200, 30, 0, ${alpha * 0.3})`);
+                    gradient.addColorStop(1, `rgba(255, 0, 0, 0)`);
+                    
+                    this.ctx.save();
+                    this.ctx.globalAlpha = 1;
+                    this.ctx.fillStyle = gradient;
+                    this.ctx.fillRect(0, 0, CONFIG.canvasWidth, CONFIG.canvasHeight);
+                    this.ctx.restore();
+                    
+                    // Capa de flash general rojo (más sutil)
+                    const flashAlpha = t * pulse * 0.15;
+                    this.ctx.save();
+                    this.ctx.globalAlpha = flashAlpha;
+                    this.ctx.fillStyle = '#ff1020';
+                    this.ctx.fillRect(0, 0, CONFIG.canvasWidth, CONFIG.canvasHeight);
+                    this.ctx.restore();
+                }
+                
+                // Restaurar contexto después del screen shake
+                if (this.hitShakeStart > 0) {
+                    this.ctx.restore();
+                }
             }
 
             drawStars(time) {
